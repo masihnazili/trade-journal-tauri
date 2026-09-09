@@ -23,27 +23,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "src-tauri/icons" | Out-Null
-          Add-Type -AssemblyName System.Drawing
-          $bitmap = New-Object System.Drawing.Bitmap 256, 256
-          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.Clear([System.Drawing.Color]::FromArgb(15, 17, 22))
-          $blue = [System.Drawing.Color]::FromArgb(79, 140, 255)
-          $green = [System.Drawing.Color]::FromArgb(47, 191, 113)
-          $pen = New-Object System.Drawing.Pen($blue, 8)
-          $graphics.DrawRectangle($pen, 12, 12, 232, 232)
-          $brush = New-Object System.Drawing.SolidBrush($green)
-          $graphics.FillRectangle($brush, 52, 140, 28, 58)
-          $graphics.FillRectangle($brush, 110, 92, 28, 106)
-          $graphics.FillRectangle($brush, 168, 52, 28, 146)
-          $font = New-Object System.Drawing.Font('Arial', 26, [System.Drawing.FontStyle]::Bold)
-          $whiteBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
-          $graphics.DrawString('TJ', $font, $whiteBrush, 83, 205)
-          $icon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
-          $stream = New-Object System.IO.FileStream("src-tauri/icons/icon.ico", [System.IO.FileMode]::Create)
-          $icon.Save($stream)
-          $stream.Close()
-          $graphics.Dispose()
-          $bitmap.Dispose()
+          $b64 = "AAABAAYAEBAAAAAAIAAEAgAAZgAAACAgAAAAACAAYAMAAGoCAAAwMAAAAAAgAHwEAADKBQAAQEAAAAAAIACoJQAADgoAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAPERH/DxER/w8REf8PERH/DxER/w8REf8PERH/DxER/w8REf8PERH/DxER/w8REf8PERH/DxER/w8REf8PERH/DxER/w8REf8AAAAADxER/w8REf9PjP//T4z//0+M//9PjP//T4z//0+M//9PjP//T4z//0+M//9PjP//T4z//0+M//9PjP//T4z//0+M//8PERH/AAAAAA8REf8PERH/T4z//zGL7wAxi+8AMYvvADGL7wAxi+8AMYvvADGL7wAxi+8AMYvvADGL7wAxi+8AMYvvADGL7wBPjP//DxER/wAAAAAPERH/DxER/0+M//8xi+8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxi+8AT4z//w8REf8AAAAADxER/w8REf9PjP//MYvvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxi+8AT4z//w8REf8AAAAADxER/w8REf9PjP//MYvvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxi+8AT4z//w8REf8AAAAADxER/w8REf9PjP//MYvvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxi+8AT4z//w8REf8AAAAADxER/w8REf9PjP//MYvvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxi+8AT4z//w8REf8AAAAADxER/w8REf9PjP//MYvvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxi+8AT4z//w8REf8AAAAADxER/w8REf9PjP//MYvvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxi+8AT4z//w8REf8AAAAADxER/w8REf9PjP//MYvvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxi+8AT4z//w8REf8AAAAADxER/w8REf9PjP//MYvvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxi+8AT4z//w8REf8AAAAADxER/w8REf9PjP//T4z//0+M//9PjP//T4z//0+M//9PjP//T4z//0+M//9PjP//T4z//0+M//9PjP//T4z//0+M//9PjP//DxER/wAAAAAPERH/DxER/w8REf8PERH/DxER/w8REf8PERH/DxER/w8REf8PERH/DxER/w8REf8PERH/DxER/w8REf8PERH/DxER/w8REf8AAAAAgAEAAIABAADAAwAA4AcAAPAPAAD4HwAA/D8AAP5/AAD/AAAA/gEAAPwAAAD4AAAA8AAAAOAAAADAAAAAgAAAAIAB//+AAf//gAP//4AH//+AD///gB///4A///+AH///wD///+A////wf///w="
+          $bytes = [Convert]::FromBase64String($b64)
+          [IO.File]::WriteAllBytes("src-tauri/icons/icon.ico", $bytes)
+          Get-Item "src-tauri/icons/icon.ico" | Format-List Name, Length
 
       - name: Install frontend dependencies
         run: npm install
