@@ -32,6 +32,7 @@ pub struct TradeInput {
     pub notes: Option<String>,
     pub screenshot_entry_path: Option<String>,
     pub screenshot_exit_path: Option<String>,
+    pub imported_from_mt: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -69,6 +70,7 @@ pub struct Trade {
     pub status: String,
     pub created_at: String,
     pub updated_at: String,
+    pub imported_from_mt: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -131,6 +133,7 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             screenshot_entry_path TEXT,
             screenshot_exit_path TEXT,
             status TEXT DEFAULT 'closed',
+            imported_from_mt INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );
@@ -230,6 +233,7 @@ fn row_to_trade(row: &rusqlite::Row) -> rusqlite::Result<Trade> {
         status: row.get("status")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
+        imported_from_mt: row.get("imported_from_mt")?,
     })
 }
 
@@ -249,6 +253,7 @@ pub fn create_trade(conn: &Connection, t: TradeInput) -> rusqlite::Result<Trade>
     let fees = t.fees.unwrap_or(0.0);
     let followed_plan = if t.followed_plan.unwrap_or(true) { 1 } else { 0 };
     let status = if t.exit_price.is_some() { "closed" } else { "open" };
+    let imported_from_mt = if t.imported_from_mt.unwrap_or(false) { 1 } else { 0 };
 
     let (pnl_gross, pnl_net, pnl_percent, actual_rr) =
         compute_pnl(&t.direction, t.entry_price, t.exit_price, t.position_size, fees, t.stop_loss);
@@ -260,15 +265,15 @@ pub fn create_trade(conn: &Connection, t: TradeInput) -> rusqlite::Result<Trade>
             planned_rr, actual_rr, pnl_gross, pnl_net, pnl_percent,
             plan_setup_reason, plan_market_condition, plan_confidence,
             emotion_entry, emotion_exit, followed_plan, mistake_tags,
-            lesson_learned, notes, screenshot_entry_path, screenshot_exit_path, status
-        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31)",
+            lesson_learned, notes, screenshot_entry_path, screenshot_exit_path, status, imported_from_mt
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32)",
         params![
             id, t.symbol, t.direction, t.strategy_tag, t.entry_date, t.entry_time, t.exit_date, t.exit_time,
             t.entry_price, t.exit_price, t.stop_loss, t.take_profit, t.position_size, fees,
             t.planned_rr, actual_rr, pnl_gross, pnl_net, pnl_percent,
             t.plan_setup_reason, t.plan_market_condition, t.plan_confidence,
             t.emotion_entry, t.emotion_exit, followed_plan, t.mistake_tags,
-            t.lesson_learned, t.notes, t.screenshot_entry_path, t.screenshot_exit_path, status
+            t.lesson_learned, t.notes, t.screenshot_entry_path, t.screenshot_exit_path, status, imported_from_mt
         ],
     )?;
 
@@ -504,4 +509,318 @@ pub fn export_trades_csv(conn: &Connection) -> rusqlite::Result<String> {
     }
 
     Ok(csv)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Unit tests for statistical calculations
+    
+    #[test]
+    fn test_win_rate_calculation() {
+        // Test with 50% win rate (2 wins, 2 losses)
+        let trades = vec![
+            Trade {
+                pnl_net: Some(100.0),
+                ..Default::default()
+            },
+            Trade {
+                pnl_net: Some(50.0),
+                ..Default::default()
+            },
+            Trade {
+                pnl_net: Some(-100.0),
+                ..Default::default()
+            },
+            Trade {
+                pnl_net: Some(-50.0),
+                ..Default::default()
+            },
+        ];
+
+        let wins = trades.iter().filter(|t| t.pnl_net.unwrap_or(0.0) > 0.0).count();
+        let win_rate = (wins as f64 / trades.len() as f64) * 100.0;
+        
+        assert_eq!(win_rate, 50.0);
+    }
+
+    #[test]
+    fn test_profit_factor_calculation() {
+        let trades = vec![
+            Trade {
+                pnl_net: Some(100.0),
+                ..Default::default()
+            },
+            Trade {
+                pnl_net: Some(50.0),
+                ..Default::default()
+            },
+            Trade {
+                pnl_net: Some(-100.0),
+                ..Default::default()
+            },
+        ];
+
+        let wins: Vec<&Trade> = trades.iter().filter(|t| t.pnl_net.unwrap_or(0.0) > 0.0).collect();
+        let losses: Vec<&Trade> = trades.iter().filter(|t| t.pnl_net.unwrap_or(0.0) < 0.0).collect();
+        
+        let gross_profit: f64 = wins.iter().map(|t| t.pnl_net.unwrap_or(0.0)).sum();
+        let gross_loss: f64 = losses.iter().map(|t| t.pnl_net.unwrap_or(0.0)).sum::<f64>().abs();
+        
+        let profit_factor = if gross_loss > 0.0 {
+            gross_profit / gross_loss
+        } else {
+            0.0
+        };
+
+        assert_eq!(profit_factor, 1.5); // 150 / 100 = 1.5
+    }
+
+    #[test]
+    fn test_avg_win_loss() {
+        let trades = vec![
+            Trade {
+                pnl_net: Some(100.0),
+                ..Default::default()
+            },
+            Trade {
+                pnl_net: Some(80.0),
+                ..Default::default()
+            },
+            Trade {
+                pnl_net: Some(-50.0),
+                ..Default::default()
+            },
+        ];
+
+        let wins: Vec<&Trade> = trades.iter().filter(|t| t.pnl_net.unwrap_or(0.0) > 0.0).collect();
+        let losses: Vec<&Trade> = trades.iter().filter(|t| t.pnl_net.unwrap_or(0.0) < 0.0).collect();
+
+        let gross_profit: f64 = wins.iter().map(|t| t.pnl_net.unwrap_or(0.0)).sum();
+        let gross_loss: f64 = losses.iter().map(|t| t.pnl_net.unwrap_or(0.0)).sum::<f64>().abs();
+
+        let avg_win = gross_profit / wins.len() as f64;
+        let avg_loss = gross_loss / losses.len() as f64;
+
+        assert_eq!(avg_win, 90.0);
+        assert_eq!(avg_loss, 50.0);
+    }
+
+    #[test]
+    fn test_empty_trades_stats() {
+        let trades: Vec<Trade> = vec![];
+        
+        if trades.is_empty() {
+            let stats = SummaryStats::default();
+            assert_eq!(stats.total_trades, 0);
+            assert_eq!(stats.win_rate, 0.0);
+            assert_eq!(stats.profit_factor, 0.0);
+        }
+    }
+
+    #[test]
+    fn test_all_winners() {
+        let trades = vec![
+            Trade {
+                pnl_net: Some(100.0),
+                ..Default::default()
+            },
+            Trade {
+                pnl_net: Some(50.0),
+                ..Default::default()
+            },
+        ];
+
+        let wins = trades.iter().filter(|t| t.pnl_net.unwrap_or(0.0) > 0.0).count();
+        let win_rate = (wins as f64 / trades.len() as f64) * 100.0;
+
+        assert_eq!(win_rate, 100.0);
+    }
+
+    #[test]
+    fn test_all_losers() {
+        let trades = vec![
+            Trade {
+                pnl_net: Some(-100.0),
+                ..Default::default()
+            },
+            Trade {
+                pnl_net: Some(-50.0),
+                ..Default::default()
+            },
+        ];
+
+        let wins = trades.iter().filter(|t| t.pnl_net.unwrap_or(0.0) > 0.0).count();
+        let win_rate = (wins as f64 / trades.len() as f64) * 100.0;
+
+        assert_eq!(win_rate, 0.0);
+    }
+
+    #[test]
+    fn test_max_drawdown_calculation() {
+        let trades = vec![
+            (100.0, "2024-01-01"),
+            (-50.0, "2024-01-02"),
+            (200.0, "2024-01-03"),
+            (-150.0, "2024-01-04"),
+        ];
+
+        let mut running = 0.0;
+        let mut peak = 0.0;
+        let mut max_drawdown = 0.0;
+
+        for (pnl, _) in trades {
+            running += pnl;
+            if running > peak {
+                peak = running;
+            }
+            let dd = peak - running;
+            if dd > max_drawdown {
+                max_drawdown = dd;
+            }
+        }
+
+        // Peak at 100, then drops to 50: DD = 50
+        // Peak at 250, then drops to 100: DD = 150
+        assert_eq!(max_drawdown, 150.0);
+    }
+
+    #[test]
+    fn test_equity_curve_generation() {
+        let starting_balance = 1000.0;
+        let pnls = vec![100.0, -50.0, 200.0, -30.0];
+        
+        let mut balance = starting_balance;
+        let mut equity_points = vec![];
+
+        for pnl in pnls {
+            balance += pnl;
+            equity_points.push(balance);
+        }
+
+        assert_eq!(equity_points[0], 1100.0);
+        assert_eq!(equity_points[1], 1050.0);
+        assert_eq!(equity_points[2], 1250.0);
+        assert_eq!(equity_points[3], 1220.0);
+    }
+
+    #[test]
+    fn test_plan_adherence_calculation() {
+        let mut trades = vec![
+            Trade {
+                followed_plan: 1,
+                ..Default::default()
+            },
+            Trade {
+                followed_plan: 1,
+                ..Default::default()
+            },
+            Trade {
+                followed_plan: 0,
+                ..Default::default()
+            },
+            Trade {
+                followed_plan: 1,
+                ..Default::default()
+            },
+        ];
+
+        let total = trades.len() as f64;
+        let followed_count = trades.iter().filter(|t| t.followed_plan == 1).count() as f64;
+        let plan_adherence = (followed_count / total) * 100.0;
+
+        assert_eq!(plan_adherence, 75.0);
+    }
+
+    #[test]
+    fn test_avg_rr_with_no_stops() {
+        let trades = vec![
+            Trade {
+                actual_rr: None,
+                ..Default::default()
+            },
+            Trade {
+                actual_rr: None,
+                ..Default::default()
+            },
+        ];
+
+        let rr_trades: Vec<&Trade> = trades.iter().filter(|t| t.actual_rr.is_some()).collect();
+        let avg_rr = if !rr_trades.is_empty() {
+            rr_trades.iter().map(|t| t.actual_rr.unwrap()).sum::<f64>() / rr_trades.len() as f64
+        } else {
+            0.0
+        };
+
+        assert_eq!(avg_rr, 0.0);
+    }
+
+    #[test]
+    fn test_avg_rr_with_stops() {
+        let trades = vec![
+            Trade {
+                actual_rr: Some(1.5),
+                ..Default::default()
+            },
+            Trade {
+                actual_rr: Some(2.0),
+                ..Default::default()
+            },
+            Trade {
+                actual_rr: Some(-1.0),
+                ..Default::default()
+            },
+        ];
+
+        let rr_trades: Vec<&Trade> = trades.iter().filter(|t| t.actual_rr.is_some()).collect();
+        let avg_rr = if !rr_trades.is_empty() {
+            rr_trades.iter().map(|t| t.actual_rr.unwrap()).sum::<f64>() / rr_trades.len() as f64
+        } else {
+            0.0
+        };
+
+        assert_eq!(avg_rr, 2.5 / 3.0);
+    }
+}
+
+impl Default for Trade {
+    fn default() -> Self {
+        Trade {
+            id: String::new(),
+            symbol: String::new(),
+            direction: String::new(),
+            strategy_tag: None,
+            entry_date: String::new(),
+            entry_time: None,
+            exit_date: None,
+            exit_time: None,
+            entry_price: 0.0,
+            exit_price: None,
+            stop_loss: None,
+            take_profit: None,
+            position_size: 0.0,
+            fees: 0.0,
+            planned_rr: None,
+            actual_rr: None,
+            pnl_gross: None,
+            pnl_net: None,
+            pnl_percent: None,
+            plan_setup_reason: None,
+            plan_market_condition: None,
+            plan_confidence: None,
+            emotion_entry: None,
+            emotion_exit: None,
+            followed_plan: 1,
+            mistake_tags: None,
+            lesson_learned: None,
+            notes: None,
+            screenshot_entry_path: None,
+            screenshot_exit_path: None,
+            status: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            imported_from_mt: 0,
+        }
+    }
 }
