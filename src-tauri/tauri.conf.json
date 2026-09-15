@@ -30,7 +30,9 @@
       "nsis": {
         "installMode": "currentUser",
         "displayLanguageSelector": false
-      }
+      },
+      "certificateThumbprint": null,
+      "signingIdentity": null
     }
   }
 }
