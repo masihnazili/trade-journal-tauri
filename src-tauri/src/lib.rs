@@ -80,7 +80,7 @@ fn export_trades_csv(state: tauri::State<DbState>) -> Result<String, String> {
 /// Backup database to user-selected directory
 #[tauri::command]
 fn backup_database(state: tauri::State<DbState>, backup_dir: String) -> Result<String, String> {
-    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let _conn = state.0.lock().map_err(|e| e.to_string())?;
     
     // Get database path from connection (we need to know it)
     // For now, we'll use app data dir + known filename
@@ -174,6 +174,7 @@ fn import_mt_statement(
         let trade_input = TradeInput {
             symbol: mt_trade.symbol.clone(),
             direction: mt_trade.trade_type.clone(),
+            strategy_tag: None,
             entry_date: mt_trade.open_time.split_whitespace().next().unwrap_or("").to_string(),
             entry_time: Some(mt_trade.open_time.clone()),
             exit_date: mt_trade.close_time.as_ref().map(|t| t.split_whitespace().next().unwrap_or("").to_string()),
